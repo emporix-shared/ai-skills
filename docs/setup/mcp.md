@@ -23,14 +23,16 @@ from primary sources (see the `emporix-docs-navigation` skill).
 ## 2. Emporix hosted platform MCP (tenant token required)
 
 Runtime commerce tools against a live tenant — **pre-wired with placeholders**;
-supply your own values.
+supply your own values. See the official Emporix documentation:
+[Emporix MCP Server](https://developer.emporix.io/agentic-commerce-intelligence/mcp-in-emporix/mcp)
+and [Retrieving the Emporix MCP token](https://developer.emporix.io/agentic-commerce-intelligence/mcp-in-emporix/mcp/retrieving-mcp-token).
 
 | | |
 |---|---|
 | URL | `https://api.emporix.io/mcp/{domain}/{TENANT}/{MCP_TOKEN}/mcp` |
 | Transport | Streamable HTTP |
 | Auth | tenant + MCP token, embedded in the path (scope-gated) |
-| Domains | `product`, `order`, `customer`, `extensibility`, `frontend-facing` |
+| Domains | `product`, `order`, `customer`, `extensibility`, `frontend` |
 | Filtering | optional `?tools=` query to narrow the exposed tool set |
 
 The bundled configs express this entry with environment-variable placeholders:
@@ -45,7 +47,7 @@ The bundled configs express this entry with environment-variable placeholders:
 Set these before launching your agent (one domain per connection):
 
 ```bash
-export EMPORIX_MCP_DOMAIN=product          # or order | customer | extensibility | frontend-facing
+export EMPORIX_MCP_DOMAIN=product          # or order | customer | extensibility | frontend
 export EMPORIX_TENANT=<your-tenant>
 export EMPORIX_MCP_TOKEN=<your-mcp-token>
 ```
