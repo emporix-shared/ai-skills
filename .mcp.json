@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "emporix-docs": {
+      "type": "http",
+      "url": "https://developer.emporix.io/~gitbook/mcp"
+    },
+    "emporix-platform": {
+      "type": "http",
+      "url": "https://api.emporix.io/mcp/${EMPORIX_MCP_DOMAIN}/${EMPORIX_TENANT}/${EMPORIX_MCP_TOKEN}/mcp"
+    }
+  }
+}
