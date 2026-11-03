@@ -14,10 +14,10 @@ description: >-
   instances.
 license: CC-BY-4.0
 metadata:
-  validated: 2026-07-11 claude-code ticket-14 clean-context run on tenant andidemo4, 7/7 Verify PASS (pre-GitHub; PR link when repo is public)
+  validated: 2026-10-29 claude-code clean-context run on tenant andidemo4, 7/7 Verify PASS + site-aware overlay task PASS vs previous version, PR #23
   sources:
     - utilities/schema/api-reference/api.yml
-  drift-checked: doc-2026071011 changelog 2026-07-12
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Extending the Emporix data model
@@ -81,17 +81,19 @@ Is the data "extra information about" a thing Emporix already has
 ```
 
 **Schema-Service-supported entities** (schema *creation* through the Schema
-Service, and Management Dashboard UI): Cart, Cart Item, Category, Company,
-Coupon, Custom Entities, Customer, Customer Address, Media, Order, Order
-Entry, Price List, Product, Quote, Return, Site, Vendor.
+Service, and Management Dashboard UI): Availability, Cart, Cart Item,
+Category, Company, Coupon, Custom Entities, Customer, Customer Address,
+Location, Media, Order, Order Entry, Price List, Product, Quote, Return, Site,
+Vendor, Vendor Location. In API calls these are the `types` values
+(`AVAILABILITY`, `CART_ITEM`, `LOCATION`, `VENDOR_LOCATION`, …).
 
 **Mixin-accepting but not Schema-Service-created** (you author and host the
-JSON schema, then reference its URL): Availability, Customer/Item
-Assignments, Customer Segments, IAM Groups, Locations (Vendor & Client
-Management), Prices, Returns, Shopping List. The authoritative, current list
-lives in the mixins standard-practices page — check it rather than trusting a
-copy, because entities move between these lists (Media and Cart Item were
-added recently).
+JSON schema, then reference its URL): Customer/Item/Group Assignments,
+Customer Segments, IAM Groups, Locations and Contact Assignments (Client
+Management), Prices, Shopping List. Entities move from this list to the one
+above (Availability, Location, and Vendor Location did in 2026), so check
+before hand-hosting: the authoritative list is the `types` enum in the Schema
+Service spec, which the mixins standard-practices page follows.
 
 ## The mixin data shape: two parallel maps
 
@@ -110,7 +112,8 @@ An entity that carries mixins holds **two** maps keyed by the same mixin key:
   against on save.
 - The two maps must be keyed identically — a value map with no matching
   schema URL is rejected, and the platform validates `mixins.<key>` against
-  the JSON Schema at `metadata.mixins.<key>` on every write.
+  the JSON Schema at `metadata.mixins.<key>` on every write. The one
+  exception is site-aware overlays (below).
 
 **What is `<key>`?** It depends on how the schema was created, and getting
 this wrong is the most common mistake:
@@ -125,9 +128,19 @@ this wrong is the most common mistake:
 - **Hand-hosted schema:** `<key>` is whatever readable name you choose (e.g.
   `deliveryOptions`) and reference alongside your own hosted URL.
 
-Two documented exceptions, each of which a fresh reader will otherwise "fix"
+Three documented exceptions, each of which a fresh reader will otherwise "fix"
 into a bug:
 
+- **Site-aware overlays** (since 2026-10-21; custom instances and products
+  only). A schema created with `siteAware: true` lets a record carry per-site
+  values under extra keys `mixins.<key>__<siteCode>` (e.g.
+  `contractFields__main`) next to the base `mixins.<key>`. Only the
+  base `<key>` goes into `metadata.mixins` — never add an `__<siteCode>` key
+  there; the overlay is validated against the base schema URL. Reads with an
+  `emporix-site: <siteCode>` header deep-merge that site's overlay into the
+  base key and return only base keys; without the header, base and overlay
+  keys come back unmerged. Custom-instance writes reject overlay keys when
+  the schema is not `siteAware`; Product Service does not enforce the flag.
 - **IAM Groups** put the mixin values in a top-level `mixins` field with
   **no** `metadata.mixins` wrapper. This is correct for Groups only.
 - Some guide examples show the schema URL under `metadata.mixinMetadata.mixins`
@@ -186,8 +199,10 @@ authorship and hosting move to you.
 1. **Create the type.** The endpoint is `POST /schema/{tenant}/custom-entities`
    — the type resource, not a separate `/custom-types` path (there is none;
    that path 404s). The `id` is UPPERCASE letters, digits, and underscores
-   (digits allowed since a 2026 change). Creating a type auto-provisions its
-   four scopes (below).
+   (digits allowed since a 2026 change), and it cannot be a built-in type
+   name (`LOCATION`, `AVAILABILITY`, `PRODUCT`, …) — that fails `400 "… is
+   reserved"` with the full list. Creating a type auto-provisions its four
+   scopes (below).
 
    ```bash
    curl -X POST 'https://api.emporix.io/schema/{tenant}/custom-entities' \
@@ -224,7 +239,10 @@ authorship and hosting move to you.
 
 4. **Retrieve** with `GET .../instances/{id}`; expand references with
    `?expand=<field>` (or `?expand=*`). Unexpanded references return
-   `{ id, type }`; expanded ones include the full referenced `resource`.
+   `{ id, type }`; expanded ones include the full referenced `resource`. To
+   page through many instances, use the cursor: pass the `X-Next-Cursor`
+   response header back as `?next=` (`pageNumber` and `X-Total-Count` are
+   ignored in cursor mode).
 
 ## References between entities
 
@@ -250,7 +268,11 @@ and `REFERENCE`. Per-field settings (`required`, `readOnly`, `nullable`,
 attribute schema live in the Schema Service spec — read it there rather than
 guessing, since attribute validation is strict. Note `NUMBER` generates an
 `integer`-typed field in the hosted JSON Schema; use `DECIMAL` when values can
-be fractional.
+be fractional. A `DECIMAL` attribute allows **two decimal places by default**
+(`precision: 0.01`, i.e. `multipleOf: 0.01` in the hosted schema): writing
+`1.234` fails `400 "remainder of division is not zero (1.234 / 0.01)"`. Set
+`precision` on the attribute (`0.001`, …, or `-1` for no constraint) when you
+need more.
 
 ## Access control: the three-tier scope model
 
@@ -288,6 +310,8 @@ their dotted path from the mixin key:
 - `q=mixins.contractFields.termMonths:>=12` — `>`, `<`, `>=`, `<=` for
   numbers and dates (dates in double quotes).
 - `q=mixins.contractFields.termMonths:(>=12 AND <=24)` — range.
+- `q=id:!=SC-001` — exclude by field value (Schema
+  Service, since 2026-10-12).
 - `q=mixins.contractFields:exists` / `:missing` — whether the mixin is set.
 - `q=name.en:~Gold` — regex (`~`) on a string; localized fields take the
   language suffix (`name.en`).

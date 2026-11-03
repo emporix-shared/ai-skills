@@ -11,11 +11,11 @@ Agentic **skills** for building on the [Emporix](https://emporix.com) commerce p
 | --- | --- | --- |
 | [emporix-auth](skills/emporix-auth/SKILL.md) | Authenticate against the Emporix Commerce Engine API. | ✅ `2026-07-11` |
 | [emporix-docs-navigation](skills/emporix-docs-navigation/SKILL.md) | Find, read, and verify answers in the Emporix documentation from primary sources. | ✅ `2026-07-10` |
-| [emporix-extensibility](skills/emporix-extensibility/SKILL.md) | Extend the Emporix data model with the Schema Service — add custom fields (mixins) to core entities like Product, Order, Customer, or Cart … | ✅ `2026-07-11` |
-| [emporix-product-data](skills/emporix-product-data/SKILL.md) | Onboard and sync product data into Emporix across the Product, Category, Catalog, Availability, Price, and Media services. | ✅ `2026-07-11` |
+| [emporix-extensibility](skills/emporix-extensibility/SKILL.md) | Extend the Emporix data model with the Schema Service — add custom fields (mixins) to core entities like Product, Order, Customer, or Cart … | ✅ `2026-10-29` |
+| [emporix-product-data](skills/emporix-product-data/SKILL.md) | Onboard and sync product data into Emporix across the Product, Category, Catalog, Availability, Price, and Media services. | ✅ `2026-10-06` |
 | [emporix-sequential-id](skills/community/emporix-sequential-id/SKILL.md) | Manage sequence schemas in the Emporix Sequential ID Service and generate sequential document numbers. | ✅ `2026-07-11` |
-| [emporix-storefront](skills/emporix-storefront/SKILL.md) | Develop, run, and deploy the Emporix Journey Aware Storefront (the productized B2B Commerce Frontend / emporix-showcase) — a Next.js 16 + … | ✅ `2026-07-11` |
-| [emporix-terraform](skills/emporix-terraform/SKILL.md) | Manage Emporix tenant configuration as code with the official `emporix/emporix` Terraform provider — sites, currencies, countries, tax … | ✅ `2026-07-20` |
+| [emporix-storefront](skills/emporix-storefront/SKILL.md) | Develop, run, and deploy the Emporix Journey Aware Storefront (the productized B2B Commerce Frontend / emporix-showcase) — a Next.js 16 + … | ✅ `2026-10-29` |
+| [emporix-terraform](skills/emporix-terraform/SKILL.md) | Manage Emporix tenant configuration as code with the official `emporix/emporix` Terraform provider — sites, currencies, countries, tax … | ✅ `2026-10-06` |
 <!-- catalog:end -->
 
 The table above is generated from `skills/*/SKILL.md` frontmatter by [scripts/generate-catalog.mjs](scripts/generate-catalog.mjs) — never edit it by hand. The `Validated` badge shows the date each skill last passed a clean-context validation run.

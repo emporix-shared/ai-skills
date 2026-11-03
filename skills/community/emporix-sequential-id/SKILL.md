@@ -15,6 +15,7 @@ metadata:
   validated: 2026-07-11 claude-code ACME-ERP clean-context run on tenant andidemo4, 8/8 Verify PASS (maintainer-executed gate c; evidence on branch acceptance-run-sequential-id)
   sources:
     - utilities/sequential-id/api-reference/api.yml
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Emporix Sequential ID Service
@@ -42,7 +43,7 @@ the `emporix-auth` skill's territory.
   `sequentialid.schema_view` and, for schema management,
   `sequentialid.schema_manage`.
 - Outbound HTTPS and `curl` (or an equivalent HTTP client).
-- Optional, only for automatic date/country placeholder resolution: a site
+- Optional, only for automatic date/country or custom placeholder resolution: a site
   whose `siteCode` you know (most tenants have `main`).
 
 ## The two scopes
@@ -97,9 +98,11 @@ differ.
 - `maxValue` is the last usable counter value; the generation after it
   returns `409` ("Not enough free ids left in this schema. MaxValue is
   exceeded").
+- Placeholder names must start and end with `__`. Each definition must
+  include `required`; `default` applies only when `required: false`.
 - `placeholders` declares the `__token__` strings used in `preText`/
   `postText`. A `required: true` placeholder must be supplied on every
-  generation call (in the body, or via `siteCode` for the date/country set
+  generation call (in the body, or resolved via `siteCode` as described
   below) — otherwise the call fails with `400 Required Placeholder is
   missing`. Do not rely on the placeholder `default` property: a required
   placeholder with a `default` still fails when the value is not supplied.
@@ -163,6 +166,26 @@ Returns `201` with `{"id": "ORD-2026-001001-EU"}`.
   `homeBase.address.country`, default `DE`). Without `siteCode`, every
   required placeholder — including the date ones — must be in the body.
 - Body placeholder values override site-derived ones.
+- Since 2026-08-17, custom placeholders can resolve from site data too.
+  Declare a `sitePath` on a custom placeholder, for example:
+
+  ```json
+  { "__region__": { "required": true, "sitePath": "mixins.customConfig.region" } }
+  ```
+
+  Paths beginning `mixins.` resolve from the site's mixins; other paths
+  must match the Site schema, e.g. `homeBase.address.country`. Mixin paths
+  are format-validated only. Numeric segments select array elements
+  (`shipping.0.id`); bracket notation, `metadata` paths and the bare
+  `mixins` root are rejected.
+- Arrays of scalars are joined with `delimiter` (default `-`) and limited
+  to `arrayLimit` elements (default `3`, minimum `1`); both are ignored for
+  scalars. Objects, empty arrays and missing values do not populate a
+  placeholder, so an unresolved required placeholder fails with `400`.
+  Resolved values longer than 100 characters are truncated.
+- A required `sitePath` placeholder needs `siteCode` unless its value is
+  supplied in the request body. The same resolution rules apply to batch
+  generation.
 
 **Separate number ranges (pools)** — pass `sequenceKey` in the body to give
 each vendor, period, or channel its own independent counter under one schema:
@@ -191,7 +214,9 @@ curl -s -X POST "https://api.emporix.io/sequential-id/sequenceSchemaBatch/nextId
 ```
 
 Returns `201` with `{"orderNoSequence": {"ids": ["...","...","..."]}, ...}`.
-Each entry also accepts `sequenceKey`; `numberOfIds` minimum is 1.
+Each entry also accepts `sequenceKey`; `numberOfIds` minimum is 1. Pass
+`siteCode` as a query parameter to resolve site-based placeholders for the
+batch.
 
 ## Pitfalls
 
@@ -259,3 +284,12 @@ both sequentialid scopes, `$VIEW_TOKEN` only `sequentialid.schema_view`.
    `GET .../schemas` → expect neither `verifyTestSequence` entry in the
    list (do not use GET-by-ID as the proof — it returns `200` empty for
    deleted schemas).
+9. **Custom site resolution and body precedence.** Create and activate a
+   second throwaway type with `preText: "S-__region__-"`, `startValue: 10`,
+   `numberOfDigits: 4` and
+   `placeholders: {"__region__": {"required": true, "sitePath": "homeBase.address.country"}}`.
+   Using a site whose country you know, `nextId?siteCode={siteCode}` with
+   `{}` returns `201` and `S-{country}-0011`. Repeat with
+   `{"placeholders":{"__region__":"OVERRIDE"}}` → `S-OVERRIDE-0012`.
+   A call without `siteCode` or a body value returns `400`. Delete this
+   schema and confirm its absence from the schema list.

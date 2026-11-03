@@ -4,7 +4,8 @@ description: >-
   Manage Emporix tenant configuration as code with the official
   `emporix/emporix` Terraform provider — sites, currencies, countries, tax,
   shipping zones/methods/delivery times, payment modes, webhooks, mixin
-  schemas, and generic tenant-configuration keys — plus a bounded raw
+  schemas, custom entity types and instances, price models, and generic
+  tenant-configuration keys — plus a bounded raw
   Configuration-Service-API escape hatch for config surfaces the provider
   does not model yet (indexing, unit handling, country regions, untyped
   keys). Use when writing Terraform for Emporix, configuring the provider
@@ -16,10 +17,13 @@ description: >-
   or a 403 on a provider call.
 license: CC-BY-4.0
 metadata:
-  validated: 2026-07-20 claude-code clean-context run on tenant andidemo4, 3/3 Verify PASS on provider v0.9.1, PR #2
+  validated: 2026-10-06 claude-code isolated claude -p run on tenant andidemo4, 4/4 Verify PASS on provider v0.11.2 + 0.9.1->0.11.2 upgrade planned No changes, PR #9
   sources:
     - configuration/configuration-service/api-reference/api.yml
     - configuration/unit-handling-service/api-reference/api.yml
+  anchor: github:emporix/terraform-provider-emporix@0.11.2 pinned
+  anchor-checked: 0.11.2 2026-10-29
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Manage Emporix tenant configuration as code
@@ -28,12 +32,15 @@ The official `emporix/emporix` Terraform provider turns tenant **configuration**
 — the settings a partner sets up once per environment — into version-controlled,
 reviewable, repeatable `.tf` files. It is a *configuration* provider, not a
 platform provider: it manages the commerce **setup** surface (sites, currencies,
-countries, tax, shipping, payment modes, webhooks, mixin schemas, arbitrary
-tenant-config keys) and deliberately stops there. Products, prices, orders,
-customers, stock, media, and the API-key/IAM surface are **data plane** and are
-not — and are not meant to be — managed here.
+countries, tax, shipping, payment modes, webhooks, mixin schemas, custom entity
+types, price models, arbitrary tenant-config keys) and deliberately stops there.
+Products, prices (the values — price *models* are config), orders, customers,
+stock, media, and the API-key/IAM surface are **data plane** and are not — and
+are not meant to be — managed here. Custom entity *instances* are the one
+record type it models: use them for reference/configuration data that should
+move with an environment, not for transactional data.
 
-The provider is **v0.9.1 — pre-1.0**. Treat it accordingly: pin an exact version,
+The provider is **v0.11.2 — pre-1.0**. Treat it accordingly: pin an exact version,
 expect that a minor upgrade can require state surgery (it has happened once
 already — see Pitfalls), and never run `apply` against a production tenant. Prove
 changes on a dev/sandbox tenant first; that is the provider's own acceptance-test
@@ -63,11 +70,11 @@ Decide before writing any HCL:
 
 | What you want to manage | Use |
 |---|---|
-| One of the 11 modelled resources (table below) | The provider resource |
+| One of the 14 modelled resources (table below) | The provider resource |
 | A config surface the provider does **not** model yet — indexing, unit handling, country **regions**, or an untyped tenant-config key | The raw-API escape hatch (below), bounded to config |
-| Products, prices, orders, customers, stock, media, promotions | Data plane — **not this skill**, and not a config-as-code concern |
+| Products, price values, orders, customers, stock, media, promotions | Data plane — **not this skill**, and not a config-as-code concern |
 | Deploying the storefront app (Vercel / Cloud Run / K8s) | `emporix-storefront` — that is app deploy, this is config-as-code |
-| *Designing* which mixin/custom-entity to model and why | `emporix-extensibility` — this skill only *provisions* a schema via `emporix_schema` |
+| *Designing* which mixin/custom-entity to model and why | `emporix-extensibility` — this skill only *provisions* the result (`emporix_schema`, `emporix_custom_entity_type`, `emporix_custom_entity_instance`) |
 | Minting the API key / picking scopes / debugging a token | `emporix-auth` |
 
 ## Configure the provider
@@ -81,7 +88,7 @@ terraform {
   required_providers {
     emporix = {
       source  = "emporix/emporix"
-      version = "= 0.9.1"
+      version = "= 0.11.2"
     }
   }
 }
@@ -103,9 +110,10 @@ Provider config fields and their env fallbacks (`tenant` is always required;
 | `scope` | `EMPORIX_SCOPE` | Optional, free-form. See below. |
 | `api_url` | `EMPORIX_API_URL` | Defaults to `https://api.emporix.io`. |
 
-**Scope string.** Space-separated, tenant-prefixed:
-`tenant=<tenant> <service>.<scope> <service>.<scope> …`, e.g.
-`tenant=acme configuration.configuration_manage configuration.configuration_view`.
+**Scope string.** Space-separated, optionally tenant-prefixed:
+`[tenant=<tenant>] <service>.<scope> <service>.<scope> …`, e.g.
+`configuration.configuration_manage configuration.configuration_view` (both
+forms work).
 The provider does not hard-code scopes — if `scope` is empty it sends none, and the
 token carries whatever the key's default scopes are. Set it explicitly to prove a
 least-privilege key. **Requesting a scope the key lacks does not error** — the token
@@ -114,21 +122,24 @@ field to confirm (this is the `emporix-auth` diagnosis path for a later 403).
 
 ## The modelled resources
 
-Eleven resources, **no data sources** — you cannot look up an entity you did not
+Fourteen resources, **no data sources** — you cannot look up an entity you did not
 create through Terraform; everything is a managed `resource`.
 
 | Resource | Emporix concept |
 |---|---|
-| `emporix_sitesettings` | Site settings (a site plus its mixins) |
+| `emporix_sitesettings` | Site settings (a site plus its mixins; `home_base.timezone` since 0.11.0) |
 | `emporix_paymentmode` | Payment modes (INVOICE, CASH_ON_DELIVERY, …) |
 | `emporix_country` | Country **active** toggle — pre-populated, update-only (see Pitfalls) |
 | `emporix_currency` | Currencies (ISO-4217) |
 | `emporix_tenant_configuration` | Generic tenant configuration key/value store |
-| `emporix_webhook` | Webhook subscriptions |
+| `emporix_webhook` | Webhook subscriptions (several targets per event type since 0.11.2) |
 | `emporix_shipping_zone` | Shipping zones (per site) |
 | `emporix_shipping_method` | Shipping methods (per zone) |
 | `emporix_delivery_time` | Delivery times / windows |
 | `emporix_schema` | Mixin schemas (Schema Service) |
+| `emporix_custom_entity_type` | Custom entity **types** (`/schema/{tenant}/custom-entities`) — distinct from `emporix_schema` |
+| `emporix_custom_entity_instance` | Records of a custom type; import as `type:id` |
+| `emporix_price_models` | Price models (`BASIC` / `VOLUME` / `TIERED` tier definitions) |
 | `emporix_tax` | Taxes / tax classes (per country) |
 
 For each resource's argument reference and a full worked example, read its page in
@@ -208,13 +219,33 @@ provider resource whenever one exists; reach for the escape hatch only for the g
   create or delete one, only toggle `active`. The resource auto-adopts the existing
   country with **no `terraform import`** step. It cannot manage regions or other
   country attributes — those are read-only here (regions route to the escape hatch).
+- **Webhook rules come from the API.** One `emporix_webhook` per `provider_type`
+  per tenant (a second one fails `409`, even if the first is inactive); at least
+  one config must stay active; an `HTTP` `destination_url` must answer
+  `HEAD`/`OPTIONS` at apply time (placeholders fail). Since 0.11.2
+  `terraform destroy` force-deletes an active webhook — destroying the tenant's
+  only active config is no longer refused.
+- **Custom entity instances: mixins are a JSON string, nested under the schema
+  id.** `mixins = jsonencode({ <emporix_schema id> = { field = … } })`, and the
+  instance's type needs an `emporix_schema` with `types = [<type id>]` (not the
+  `CUSTOM_ENTITY` literal) or any non-empty mixin is rejected. `type` and
+  `owner` force replacement. Deleting a type fails while schemas or instances
+  reference it, and it leaves its auto-created `custom.<type>_*` scopes behind.
+- **Price models: the tenant default can never be destroyed** — assign another
+  default first. Deleting a model that still has prices needs
+  `force_delete = true` *and* the `price.pricemodel_manage_admin` scope, and
+  deletes those prices asynchronously. A tier's `unit_code` must already exist
+  on the tenant — the provider's examples use `piece`, which fails
+  `400 "The unit:piece on tenant:<tenant> does not exist"` where the tenant's
+  unit is `pc`; list `GET /unit-handling/{tenant}/units` first.
 - **No data sources.** There is nothing to look up an existing entity you did not
   create in this state. Manage it as a `resource` (Terraform will adopt/create it) or
   read it via the raw API.
 - **0.x state can break across upgrades.** `emporix_schema` unlimited-OBJECT nesting
   in provider 0.7.0 required "resource remove and import to state." Pin the version,
   read the provider CHANGELOG before bumping, and plan a state migration for a minor
-  upgrade rather than assuming it is transparent.
+  upgrade rather than assuming it is transparent. (Bumping 0.9.1 → 0.11.2 over
+  existing state planned `No changes` — but check each bump, never assume.)
 - **A 403 on a provider call is a missing scope, not a bad token** (a 401 is the bad
   token/tenant). The provider surfaces the API's status; fix it by widening the key's
   scopes in `emporix-auth`, then re-run — scopes cannot be added to an existing key.
@@ -253,5 +284,16 @@ mint their own narrower tokens with `curl` (as shown in each), so they do not re
 3. **Negative — out-of-scope is 403, not 401.** Mint a token scoped **only**
    `tenant={tenant} configuration.configuration_view` (read, no manage), then attempt
    a manage action — `POST /unit-handling/{tenant}/units` (needs `unithandling.unit_manage`)
-   → expect **403 Forbidden**, and confirm the unit was not created. A `401` here means
+   → expect **403 Forbidden**, and confirm the unit was not created (read back
+   with check 2's manage token — the view-only token cannot read units). A `401` here means
    the token itself is wrong — a different failure; do not read it as a scope success.
+
+4. **A resource new in 0.10+ works** (proves the pin is really 0.11.2, not an
+   older cached provider). Add `schema.schema_manage schema.schema_read` to
+   `EMPORIX_SCOPE` and declare
+   `resource "emporix_custom_entity_type" "verify" { id = "TF_VERIFY_PROBE" name = { en = "probe" } }`:
+   - `terraform apply -auto-approve` → `1 added`; `GET /schema/{tenant}/custom-entities/TF_VERIFY_PROBE`
+     → **200**.
+   - `terraform destroy -auto-approve` → `1 destroyed`; the same `GET` → **404**.
+   `Error: Invalid resource type "emporix_custom_entity_type"` means an older
+   provider was resolved — check `terraform version` and the lock file.

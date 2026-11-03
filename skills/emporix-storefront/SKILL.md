@@ -8,18 +8,20 @@ description: >-
   Repository architecture and InversifyJS DI, the [site]/[locale] layout groups,
   the brand/alias/mapped design-token system, checkout/auth, or deploying to
   Vercel / Cloud Run / Kubernetes / Azure. Reach for it on storefront symptoms:
-  a blank page or 401 on first load, /api/ready returning 503, ERR_TOO_MANY_
+  a blank page or 401 on first load, a 500 on the product page, /api/ready returning 503, ERR_TOO_MANY_
   REDIRECTS after deploy, "x-middleware-rewrite to /main/...", CSS tokens not
   resolving, or platform-layer edits not hot-reloading. Not for Emporix REST API
   scopes/tokens (emporix-auth), data modeling/mixins (emporix-extensibility),
   product import (emporix-product-data), or Management Dashboard extensions.
 license: CC-BY-4.0
 metadata:
-  validated: 2026-07-11 claude-code ticket-15 clean-context render-oracle PASS on tenant andidemo4 (product seeded via emporix-product-data); gates a/b/d green (pre-GitHub; PR link when repo is public)
-  # Grounded on the emporix-frontend repo (@1.4.0) + community threads —
-  # no Emporix OpenAPI spec. Changelog-only drift checking.
+  validated: 2026-10-29 claude-code clean-context run on tenant andidemo4 with emporix-frontend 1.11.0, 5/5 runnable Verify PASS (6 BLOCKED by design), previous version fails check 4, PR #24
+  # Grounded on the emporix-frontend repo + community threads — no Emporix
+  # OpenAPI spec, so the spec axis is changelog-only; the repo is the anchor.
   sources: []
-  drift-checked: doc-2026071011 changelog 2026-07-12
+  anchor: github:emporix-shared/emporix-frontend@1.11.0 grounded
+  anchor-checked: 1.11.0 2026-10-29
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Emporix Storefront (Journey Aware Storefront / B2B Commerce Frontend)
@@ -45,9 +47,10 @@ Storefront* (concept), *B2B Commerce Frontend* (product/marketing), *emporix-sho
 For this skill's instructions and Verify section to work, the environment needs:
 
 - **The repo checked out.** Private (`emporix-shared/emporix-frontend`); request access via
-  the partner form if you lack it. This skill is version-aware of **1.x** (validated against
-  1.4.0); specific file paths age — trust the repo's own `docs/` over any path quoted here.
-- **Node.js 20+** and npm. `npm install` must have run.
+  the partner form if you lack it. This skill is version-aware of **1.x** (re-read against
+  1.11.0); specific file paths age — trust the repo's own `docs/` over any path quoted here.
+- **Node.js 22 or 24** and **npm ≥ 11.10** (the repo's `engines`; Node 20 is no longer
+  supported). `npm install` must have run.
 - **Demo run needs only the template — while the demo keys are live.** `.env.template` ships
   public demo values (Emporix `showcase` tenant, a Battery Included search key, a demo
   Storyblok space); when current, `cp .env.template .env` boots a browsable catalog with no
@@ -58,10 +61,18 @@ For this skill's instructions and Verify section to work, the environment needs:
   (`NEXT_PUBLIC_EMPORIX_CLIENT_ID`) drives anonymous browsing and product listing/search. The
   *Emporix API* **server** credentials (`NEXT_EMPORIX_CLIENT_ID` / `_SECRET`) mint the
   **service token** that server-side rendering uses — including the **product detail page** —
-  plus login and ordering. A product page 404s with `SSR getProductById failed: Failed to get
-  service access token` when the server creds are missing/invalid *even though* the client id
-  is valid (the listing still works — that path uses the anonymous token). Get both from
-  Developer Portal → your tenant → Manage API Keys; token/scope mechanics are `emporix-auth`'s.
+  plus login and ordering. When the server creds are missing/invalid the product page fails
+  **500** (`SSR getCatalogProductById failed` … `Failed to get service access token` in the
+  server log) *even though* the client id is valid (the listing still works — that path uses
+  the anonymous token). Only a real catalog miss is a 404. Get both from Developer Portal →
+  your tenant → Manage API Keys; token/scope mechanics are `emporix-auth`'s.
+- **A search backend the tenant actually has.** Since 1.7.0 the repo's default `SearchService`
+  is **Battery Included**, and the product page loads through it. On a tenant without a Battery
+  Included indexing configuration the page fails 500 with `Failed to load BatteryIncluded
+  runtime configuration … 400 … Configuration not found`. Set
+  `DI_SEARCH_SERVICE=EmporixSearchService` in `.env`, then `npm run generate` and restart — it
+  is a build-time DI override. (The repo's `docs/search-service.md` calls the Emporix search
+  the default; the shipped `src/platform/depency.yml` says otherwise — trust the code.)
 
 ## The three-layer architecture — the core mental model
 
@@ -102,9 +113,12 @@ environment variants, and error handling, and it's a review red flag. Instead:
 
 ```bash
 cp .env.template .env      # public demo credentials — works out of the box
-npm install                # Node 20+
+npm install                # Node 22/24, npm ≥ 11.10
 npm run dev                # http://localhost:3000, opens automatically
 ```
+
+`npm run dev` opens a desktop browser; in a headless or agent session start the same parts
+without it: `npm run generate && npx concurrently "npm:generate:watch" "npm:dev:next"`.
 
 `npm run dev` runs three things in parallel: the **InversifyJS DI generator in watch mode**
 (`generate:watch`), the Next.js dev server (`dev:next`), and a browser opener. Do **not** run
@@ -134,38 +148,46 @@ but login and ordering won't work.
 
 Two facts that trip people up:
 
-- **Storyblok is a third-party dependency, but not fatal on current builds.** A wrong/blank
-  `NEXT_PUBLIC_STORYBLOK_ACCESS_TOKEN` degrades CMS-driven content, but the app falls back to a
-  **Local CMS** so pages still render. Older community reports of a bare 401-on-load traced to
-  this token; on 1.4.0 the page loads via the fallback, so read **missing CMS content**
-  (nav/footer/landing blocks), not a hard 401, as the Storyblok signal. The template's demo
-  token is valid; keep it unless you have your own space.
+- **The CMS is a pluggable provider, and Storyblok is optional.** `NEXT_CMS_PROVIDER` picks
+  `storyblok`, `local` (JSON under `data/cms/`, a dev/demo source), or `none` (an empty page
+  shell); left empty, a Storyblok token selects `storyblok` and no token selects `none`. The
+  token is **`NEXT_STORYBLOK_ACCESS_TOKEN`** — server-only since 1.8.0; the old
+  `NEXT_PUBLIC_STORYBLOK_ACCESS_TOKEN` is still accepted but don't reintroduce it.
+  `NEXT_CMS_FALLBACK_PROVIDER=mock` (the template default) fills any page the primary provider
+  has no content for from the bundled showcase tree, so a fresh clone renders. Leave it
+  **empty in production** — there it hides a broken or empty CMS behind demo content. So read
+  **missing or demo CMS content** (nav/footer/landing blocks), not a hard 401, as the CMS
+  signal. The template's demo Storyblok token is valid; keep it unless you have your own space.
 - **`NEXT_PUBLIC_` is load-bearing.** Next.js exposes only `NEXT_PUBLIC_`-prefixed vars to the
   browser. The public Storefront client id is correctly `NEXT_PUBLIC_EMPORIX_CLIENT_ID`; the
-  privileged secret is `NEXT_EMPORIX_CLIENT_SECRET` (**no** prefix). Adding `NEXT_PUBLIC_` to
-  the secret leaks it into every client bundle — rotate immediately if that happens.
+  privileged secret is `NEXT_EMPORIX_CLIENT_SECRET` (**no** prefix). Since 1.11.0 the storefront
+  ignores `NEXT_PUBLIC_EMPORIX_CLIENT_SECRET` (the template no longer ships it), so a prefixed
+  secret just breaks login. Never put a secret in any `NEXT_PUBLIC_` var: Next.js inlines every
+  referenced one into client bundles — rotate immediately if a secret got there.
 
 ### Check readiness
 
 ```bash
 curl localhost:3000/api/health   # → 200 {"status":"ok",...}         liveness
 curl localhost:3000/api/ready    # → 200 {"status":"ready",...}      readiness
-                                  #   or 503 {"status":"not-ready","missing":[...]}
+                                  #   or 503 {"status":"not-ready",...}
 ```
 
-`/api/ready` reports exactly which **required** env vars are absent in its `missing` array. It
-checks local config only — a 200 means your env is complete, not that Emporix is reachable.
+A `503` means a **required** env var is absent. Since 1.11.0 the public response no longer
+names it; the server log does, in the `missing` field of the `Readiness check failed: required
+environment variables are missing` entry. The probe checks local config only — a 200 means your env is complete, not that Emporix is reachable.
 
 ## Routing: `[site]/[locale]` + layout groups
 
 Every route lives under `src/app/[site]/[locale]/` — multi-site and multi-locale are
-first-class URL segments. Three layout groups subdivide it:
+first-class URL segments. Layout groups subdivide it; `(nav-shell)` loads the shared header,
+footer, and navigation once for the two groups inside it:
 
 | Group | Chrome | Used for |
 |---|---|---|
-| `(default)` | full header/footer | product pages, account, login |
-| `(reduced)` | minimal | checkout, order confirmation |
-| `(no-margin)` | full-width | CMS/Storyblok catch-all pages |
+| `(nav-shell)/(default)` | full header/footer | product pages, account, cart, login, quick order |
+| `(nav-shell)/(no-margin)` | full-width | CMS catch-all pages (`[...slug]`) |
+| `(reduced)` | minimal, outside the nav shell | checkout, order confirmation |
 
 Login and password-reset render as modals via a **parallel + intercepting route**
 (`@dialog/(.)login`). If the modal renders as a full page instead: the parent layout isn't
@@ -175,7 +197,14 @@ full page **by design** — only in-app navigation intercepts).
 **Looks wrong but is right:** the site middleware rewrites incoming URLs to include the
 resolved site, so you'll see an `x-middleware-rewrite` header pointing at `/main/...` (or
 your default site). That internal rewrite is **normal multi-site behavior**, not a bug — don't
-"fix" it. A product page is `/{site}/{locale}/product/{id}`.
+"fix" it. Since 1.11.0 the canonical product URL is `/{locale}/product/{code}/{category-slug}/{name-slug}`
+(the catalog **code**, not the id; English has no locale prefix; shape set in
+`src/lib/product/product-url.ts`). Legacy `/product/{id}`, short `/product/{code}`, and
+`/{site}/{locale}/product/{id}` links still open the product; the address bar is then replaced
+client-side with the canonical path — not a 301, so don't "fix" missing redirects. A
+`/{site}/{locale}/...` URL first answers `307`, moving site and locale into the `NEXT_SITE` /
+`NEXT_LOCALE` cookies — follow redirects and keep cookies (`curl -L -c jar -b jar`) when you
+test it.
 
 ## Styling: the four-layer token system
 
@@ -218,20 +247,20 @@ production, fine on localhost. Fixes, in order: ensure the proxy forwards
 `X-Forwarded-Proto`/`-Host`; set `NEXTAUTH_URL` to the exact public origin as a fallback when
 it can't; confirm the ingress protocol. A real community case on Azure root-caused this to the
 ingress serving **HTTP/1.1 where HTTP/2 was expected** — if forwarded headers look correct,
-check the negotiated HTTP version at the ingress. (This is a known gap: as of 1.4.0 it isn't in
+check the negotiated HTTP version at the ingress. (This is a known gap: as of 1.11.0 it isn't in
 the repo docs.)
 
 Other deploy checklist items:
 
-- Build with **`npm run build`**, never `next build` — the former also runs the DI generator,
-  `check-translations`, and lint. `next build` alone ships stale DI wiring or incomplete
-  translations. Set Node to 20.x.
+- Build with **`npm run build`**, never `next build` — the former also runs the DI generator
+  (`generate:prod`), the client-chunk check, `check-translations`, and lint. `next build` alone
+  ships stale DI wiring or incomplete translations. Set Node to 22.x or 24.x.
 - Set `NEXT_PUBLIC_SERVER_URL` to the public hostname (not `localhost`); use a **distinct
   `NEXTAUTH_SECRET` per environment** (sharing/omitting causes random logouts).
 - `NEXT_SERVER_OUTPUTMODE`: leave empty for a normal server, or `standalone` for Docker.
   `export` (static) is **unsupported** — product pages, middleware, and `/api` routes need the
   Next.js server runtime.
-- Store secrets (`NEXT_EMPORIX_CLIENT_SECRET`, `NEXTAUTH_SECRET`, Storyblok) in the platform's
+- Store secrets (`NEXT_EMPORIX_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXT_STORYBLOK_ACCESS_TOKEN`) in the platform's
   secret store, not plain config.
 
 ## Symptom → cause
@@ -239,17 +268,17 @@ Other deploy checklist items:
 | Symptom | Most likely cause |
 |---|---|
 | **`Invalid ApiKey` / 401** on first load, pages 404, catalog empty | The **Storefront client id** (`NEXT_PUBLIC_EMPORIX_CLIENT_ID`) is wrong or revoked — the anonymous-token call fails so site resolution/catalog never load. Server log: `Failed to get anonymous token`. |
-| Product **listing works but the detail page 404s** | `SSR getProductById failed: Failed to get service access token` — the **server** creds (`NEXT_EMPORIX_CLIENT_ID`/`_SECRET`) are missing/invalid; detail SSR needs the service token, listing uses the anonymous one |
+| Product **listing works but the detail page 500s** | Server log `SSR getCatalogProductById failed`; the next line names the cause. `Failed to get service access token` → the **server** creds (`NEXT_EMPORIX_CLIENT_ID`/`_SECRET`) are missing/invalid (detail SSR needs the service token, listing uses the anonymous one). `Failed to load BatteryIncluded runtime configuration … Configuration not found` → set `DI_SEARCH_SERVICE=EmporixSearchService`, regenerate, restart |
 | Product renders but shows **no price** | Price match returned empty — usually `NEXT_PUBLIC_EMPORIX_DEFAULT_UNIT_CODE` (template default `piece`) ≠ the price model's `measurementUnit` (often `pc`); align them. Also check the price's `restrictions.siteCodes`, currency, and location match the site |
-| Missing CMS content (nav/footer/landing) but pages still render | Wrong/blank Storyblok token; app served from the Local CMS fallback |
-| `/api/ready` → **503** | A **required** env var missing — the `missing` array names it (server-creds absence is only a warning, not this) |
+| Missing or demo CMS content (nav/footer/landing) but pages still render | Wrong/blank `NEXT_STORYBLOK_ACCESS_TOKEN` (or provider `none`); with `NEXT_CMS_FALLBACK_PROVIDER` set, gaps are filled from the bundled showcase tree |
+| `/api/ready` → **503** | A **required** env var missing — the server log's `Readiness check failed` entry names it in `missing` (the response body no longer does since 1.11.0; server-creds absence is only a warning, not this) |
 | **`ERR_TOO_MANY_REDIRECTS`** after deploy (ok on localhost) | Proxy not forwarding `X-Forwarded-Proto`/`-Host`; `NEXTAUTH_URL` mismatch; ingress HTTP version (HTTP/1.1 vs HTTP/2) |
 | `x-middleware-rewrite` to `/main/...` | **Normal** multi-site rewrite — not a bug |
 | `x-misrouted-healthcheck: 1` in logs / API-call storm | A health probe is hitting `/` or a page route — repoint it to `/api/health` + `/api/ready` |
 | Login works in dev, not in prod | `NEXTAUTH_URL` / `NEXT_PUBLIC_SERVER_URL` ≠ real hostname; or missing/rotated server creds |
 | CSS token does nothing / unstyled | Stock Tailwind utility used, or a new token not wired through all four CSS layers (esp. the `globals.css` `@theme` step) |
 | `src/platform/` edit not taking effect | Platform layer doesn't hot-reload — restart `npm run dev` |
-| `npm run build` fails, `next build` "works" | By design — `build` also runs DI gen + `check-translations` + lint; one of those is failing |
+| `npm run build` fails, `next build` "works" | By design — `build` also runs DI gen + the client-chunk check + `check-translations` + lint; one of those is failing |
 
 ## Known limitations (from the repo README — verify before promising a fix)
 
@@ -274,30 +303,36 @@ suffices; otherwise point at your own tenant and, if it has no sellable product,
 the `emporix-product-data` skill (product published, a price + availability on a **non-`main`**
 site, in a catalog whose `publishedSites` include that site) and set `NEXT_PUBLIC_DEFAULT_SITE`
 to it. Match `NEXT_PUBLIC_EMPORIX_DEFAULT_UNIT_CODE` to the price model's `measurementUnit` or
-the price won't match.
+the price won't match, and set `DI_SEARCH_SERVICE=EmporixSearchService` unless the tenant has
+Battery Included configured.
 
 1. **Boot.** `cp .env.template .env` (then set the working credentials/site), `npm install`
    (pulls declared deps — a stale `node_modules` fails on e.g. `prom-client`), `npm run dev`.
    → the dev server serves on `http://localhost:3000`. FAIL if it exits or the DI generator
    errors.
-2. **Product page renders (oracle).** Open `/{site}/{locale}/product/{id}` for a published,
-   priced product. → the page renders the product name **and price** (with tax line), not an
-   error/blank/404. Exercises the anonymous *and* service tokens, SSR, DI wiring, price match,
-   and the site middleware end-to-end. FAIL on 404 (`SSR getProductById failed` → check server
-   creds) or a missing price (→ unit-code / price-restriction mismatch).
+2. **Product page renders (oracle).** Open `/{site}/{locale}/product/{id}` (or the canonical
+   `/product/{code}/…`) for a published, priced product (follow the `307`, keep cookies). → the page renders the product name **and
+   price** (with tax line), not an error/blank/404/500. The price is filled in client-side, so
+   check it in a real browser (or headless Chromium), or in the SSR HTML's JSON-LD `Offer`;
+   it is not plain text in the raw HTML. Exercises the anonymous *and* service tokens, SSR, DI
+   wiring, price match, and the site middleware end-to-end. FAIL on 500 (`SSR
+   getCatalogProductById failed` → read the next log line: server creds or search backend) or
+   a missing price (→ unit-code / price-restriction mismatch).
 3. **Health + readiness.** `curl localhost:3000/api/health` → `200 {"status":"ok"}`;
    `curl localhost:3000/api/ready` → `200 {"status":"ready"}`.
 4. **Missing-required-var check.** Remove a **required** var (e.g. unset
    `NEXT_PUBLIC_EMPORIX_TENANT`) and restart. → Tier-1 build/startup validation catches it and
-   **names the var** (`[healthcheck] … ✗ NEXT_PUBLIC_EMPORIX_TENANT — missing`), aborting the
-   build so the dev server may not bind; and if a server is already up, `/api/ready` reports
-   `503 {"status":"not-ready","missing":["NEXT_PUBLIC_EMPORIX_TENANT"]}`. Either way the exact
+   **names the var** (`[healthcheck] … ✗ NEXT_PUBLIC_EMPORIX_TENANT — missing`), and
+   `dev:next` exits without binding the port (the DI watcher keeps running, so `npm run dev`
+   itself does not exit); and if a server is already up, `/api/ready` returns
+   `503 {"status":"not-ready",…}` with **no** var names in the body, while the server log entry
+   `Readiness check failed …` carries `missing: ["NEXT_PUBLIC_EMPORIX_TENANT"]`. Either way the exact
    missing var is surfaced (a config gap, distinct from an upstream outage — which would leave
    `/api/ready` at 200). Restore the var afterward.
-5. **Storyblok degradation check.** Set `NEXT_PUBLIC_STORYBLOK_ACCESS_TOKEN` to an invalid
-   value and reload → the page **still renders** (Local CMS fallback) with CMS-driven content
-   degraded; it does **not** hard-401. Confirms the fallback and that a bad Storyblok token is
-   not fatal. Restore the demo token afterward.
+5. **CMS degradation check.** With the template's `NEXT_CMS_FALLBACK_PROVIDER=mock`, set
+   `NEXT_STORYBLOK_ACCESS_TOKEN` to an invalid value and restart → the page **still renders**
+   (CMS content from the fallback, or degraded); it does **not** hard-401. Confirms that a bad
+   Storyblok token is not fatal. Restore the demo token afterward.
 6. **Deployment redirect-loop guard (BLOCKED without a real ingress).** On a proxied HTTPS
    deployment, `X-Forwarded-Proto: https` reaching the app prevents `ERR_TOO_MANY_REDIRECTS`;
    stripping it (or serving the wrong HTTP version) reproduces the loop. Expected behavior only
