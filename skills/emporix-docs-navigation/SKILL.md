@@ -12,7 +12,7 @@ metadata:
   # Grounded on docs surfaces (llms.txt / .md pages / ?ask= API / docs MCP)
   # and the changelog — no OpenAPI spec. Changelog-only drift checking.
   sources: []
-  drift-checked: doc-2026071011 changelog 2026-07-12
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Navigating the Emporix documentation
@@ -36,12 +36,12 @@ plausible one.
 
 | You need | Use | How |
 |---|---|---|
-| To find where a topic is documented | `https://developer.emporix.io/llms.txt` | Full page index (title + URL + description per page) organized by product area. It is large (~1,250 lines) — search/grep it rather than reading it linearly. Pick pages from it; it contains no content itself. |
-| The content of a known page | The page URL + `.md` | Append `.md` to any portal URL for raw markdown, e.g. `https://developer.emporix.io/api-references/quickstart/list-of-api-services.md`. |
+| To find where a topic is documented | `https://developer.emporix.io/llms.txt` | Full page index (title + URL + description per page) organized by product area. It is large (~1,350 lines) — search/grep it rather than reading it linearly. Pick pages from it; it contains no content itself. |
+| The content of a known page | The page URL + `.md` | Append `.md` to any portal URL for raw markdown, e.g. `https://developer.emporix.io/api-documentation/quickstart/list-of-api-services.md`. |
 | A direct answer to a "how do I…" question | The ask API | `GET <any portal .md URL>?ask=<question>&goal=<end goal>` returns a synthesized answer with a Sources list and follow-up `?ask=` URLs. |
-| Search when your agent supports MCP | The documentation MCP server | `https://developer.emporix.io/~gitbook/mcp` (Streamable HTTP, no auth). Tools: `searchDocumentation(query)`, `getPage(url)`. |
+| Search when your agent supports MCP | The documentation MCP server | `https://developer.emporix.io/~gitbook/mcp` (Streamable HTTP, no auth). Tools: `searchDocumentation(query)`, `getPage(url)`, `askQuestion` (the ask API as a tool), `sendFeedback`. |
 | Exact API facts: endpoints, parameters, schemas, scopes, status codes | The OpenAPI spec | One `api.yml` per service in `github.com/emporix/api-references`, raw-fetchable: `https://raw.githubusercontent.com/emporix/api-references/main/{service-path}/api-reference/api.yml`. |
-| "Has this changed recently?" | The changelog | `https://developer.emporix.io/changelog/changelog.md` (see below). |
+| "Has this changed recently?" | The changelog | `https://developer.emporix.io/changelog/2026/readme.md` (see below). |
 | Bulk ingestion of the whole docs corpus | `llms-full.txt` | `https://developer.emporix.io/llms-full.txt`, paginated (`/llms-full.txt/1`, …; each chunk ends with a Next Page pointer). Rarely the right tool for a single question. |
 
 Typical flow for a question you cannot answer from memory: llms.txt (or
@@ -70,8 +70,8 @@ parameters, status codes, OAuth scopes — read the service's OpenAPI spec and
 never guess from guide prose:
 
 - Raw spec: `https://raw.githubusercontent.com/emporix/api-references/main/{service-path}/api-reference/api.yml`.
-  The `{service-path}` mirrors the portal URL: in a portal API-reference URL,
-  the path segment after `/api-references/api-guides/` is the repo path (e.g.
+  The `{service-path}` mirrors the portal URL: in a portal guide URL, the
+  path segment after `/api-documentation/api-guides/` is the repo path (e.g.
   portal `…/api-guides/products-labels-and-brands/product-service/…` → repo
   `products-labels-and-brands/product-service/api-reference/api.yml`). The
   same content renders as the portal's interactive API reference pages.
@@ -85,12 +85,15 @@ never guess from guide prose:
 ## Verifying freshness: the changelog
 
 Documentation prose can lag the platform; the changelog is the freshness
-authority. `https://developer.emporix.io/changelog/changelog.md` is a year
-index; follow the year link to dated entries, newest first, each naming the
-service, the change, and the affected endpoints. The year pages nest under a
-repeated path segment — e.g. the 2026 page is
-`https://developer.emporix.io/changelog/changelog/changelog.md` — which looks
-like a typo but is the real URL.
+authority. The current year is one page,
+`https://developer.emporix.io/changelog/2026/readme.md`: dated entries,
+newest first, each naming the service, the change, and the affected
+endpoints (in the raw markdown each entry is an `{% update date="…" %}`
+block, so grep for `update date=`). Earlier years are archived, e.g.
+`/changelog/archive/changelog-2025.md`, and planned work is at
+`/changelog/in-progress/in-progress.md`. Find a new year's page from the
+`## Changelog` section of llms.txt rather than guessing its URL — the
+portal's changelog paths have moved before, and old ones soft-404 (below).
 Check it whenever a question implies time ("has this changed?", "why does
 this behave differently than the guide says?") and before asserting platform
 behavior in code, integrations, or documentation of your own. Release notes
@@ -114,6 +117,10 @@ the same history.
   tenant (products, orders, …) and needs a tenant-specific token (see
   `emporix-auth`). For documentation, use the surfaces above; only
   `developer.emporix.io/~gitbook/mcp` serves docs.
+- **Old `/api-references/…` guide links redirect.** They answer `307` to the
+  same path under `/api-documentation/`; follow redirects (`curl -L`) or a
+  fetch returns an empty body. `/api-references/readme/…` is a separate
+  generated reference tree, not a moved guide.
 - **llms.txt is an index, not content.** Citing llms.txt proves a page
   exists, not what it says — fetch the page itself.
 
@@ -130,7 +137,7 @@ After answering a question using this skill, prove the answer is grounded:
    unambiguously. An ask-API answer alone does not count — its Sources pages
    do.
 3. **The soft-404 is distinguishable.** Fetch a deliberately wrong URL, e.g.
-   `https://developer.emporix.io/api-references/quickstart/does-not-exist.md`:
+   `https://developer.emporix.io/api-documentation/quickstart/does-not-exist.md`:
    expect HTTP 200 with a `# Page Not Found` body. If you cannot tell this
    response apart from your evidence pages, your check in step 1 is broken.
 4. **The changelog was consulted.** Name the changelog page checked and the

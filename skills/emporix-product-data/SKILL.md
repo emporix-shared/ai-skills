@@ -7,10 +7,14 @@ description: >-
   availability, defining prices or price lists, attaching product images,
   assigning products to categories, choosing dynamic vs template variants,
   or diagnosing why imported availability, stock, or prices do not show up
-  on the storefront.
+  — including "tax classes … do not exist", "localized values must be of
+  String type", "all the tier value ids must be specified", or a 413 on an
+  image upload. Not for storefront code or env setup (emporix-storefront),
+  designing mixin schemas (emporix-extensibility), or managing sites,
+  currencies, and tax as Terraform (emporix-terraform).
 license: CC-BY-4.0
 metadata:
-  validated: 2026-07-11 claude-code ticket-13 clean-context run on tenant andidemo4, 4/4 Verify PASS (pre-GitHub; PR link when repo is public)
+  validated: 2026-10-06 claude-code drift re-validation, isolated claude -p run on tenant andidemo4, 4/4 Verify PASS + 30 MiB body limit pinned (413 above), PATCH re-link observed, PR #6
   sources:
     - products-labels-and-brands/product-service/api-reference/api.yml
     - catalogs-and-categories/category-tree/api-reference/api.yml
@@ -20,7 +24,7 @@ metadata:
     - prices-and-taxes/tax-service/api-reference/api.yml
     - media/media/api-reference/api.yml
     - configuration/site-settings-service/api-reference/api.yml
-  drift-checked: doc-2026071011 changelog 2026-07-12
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Onboarding product data to Emporix
@@ -46,10 +50,12 @@ get a token carrying the pipeline scopes listed under prerequisites.
 - An Emporix tenant with Developer Portal access and a **custom API key**
   carrying the pipeline scopes for the tasks you run (see *Scopes* below).
   Read the spec for each endpoint; do not guess scope names.
-- **At least one real site whose code is not `main`.** If the tenant only has
-  `main` (common when AI Smart Config generated it), create one first:
-  `POST /site/{tenant}/sites` with `site.site_manage`. Availability is written
-  per site and `main` cannot hold per-site stock (see the guardrail below).
+- **At least one real site whose code is not `main`** — two for the Verify
+  section, whose negative check reads a site it did not write. If the tenant
+  only has `main` (common when AI Smart Config generated it), create them
+  first: `POST /site/{tenant}/sites` with `site.site_manage`. Availability is
+  written per site and `main` cannot hold per-site stock (see the guardrail
+  below).
 - Setup data the pipeline references: at least one **currency**, one **tax
   configuration** with tax classes (`tax.tax_manage`), and — for prices — one
   **price model**. These usually exist on a configured tenant.
@@ -67,7 +73,7 @@ product.
 | 1. Tax classes | Tax | `POST /tax/{tenant}/taxes` | — |
 | 2. Currency + price model | Currency, Price | `POST /currency/{tenant}/currencies`, `POST /price/{tenant}/priceModels` | — |
 | 3. Real site (if none) | Site Settings | `POST /site/{tenant}/sites` | — |
-| 4. Product | Product | `POST /product/{tenant}/products` (or `/products/bulk`) | tax classes (2) |
+| 4. Product | Product | `POST /product/{tenant}/products` (or `/products/bulk`) | tax classes (1) |
 | 5. Category + assignment | Category | `POST /category/{tenant}/categories?publish=true`, then `POST /category/{tenant}/categories/{categoryId}/assignments` (`ref.type: PRODUCT`) | product |
 | 6. Catalog | Catalog | `POST /catalog/{tenant}/catalogs` (`categoryIds`, `publishedSites`) | categories |
 | 7. Price | Price | `POST /price/{tenant}/prices` | product, price model, currency, site |
@@ -82,8 +88,10 @@ Any create that carries **localized** fields (price model `name`, category
 `localizedName`, catalog `name`/`description`) must send a **`Content-Language`**
 header naming the languages in the payload, or the call fails `400` with
 "localized values must be of String type when the Content-Language header is
-not set to all languages". Use `Content-Language: *` to accept every
-tenant-configured language, or list them (`Content-Language: en,de`).
+not set to all languages". Send localized maps (`{"en":"…"}`) with
+`Content-Language: *`. Naming one language (`Content-Language: en`) switches
+the field to a plain string — a map then fails `400 "Content Language is
+present, value should be String"`.
 
 A minimal product:
 
@@ -103,8 +111,9 @@ classes with `GET /tax/{tenant}/taxes`.
 
 `published` defaults to false — the storefront sees only published products, so
 flip it (or use the publish flow) when the product is ready. Published products
-are readable with **no scope**; reading unpublished ones needs
-`product.product_read_unpublished`.
+need **no scope** to read, but still a token — a storefront reads them with an
+anonymous token (see `emporix-auth`), and a request with no token at all gets
+`401`. Reading unpublished ones needs `product.product_read_unpublished`.
 
 ## The `main`-site guardrail
 
@@ -136,9 +145,10 @@ back to the `main` site. The guardrail is specific to **availability writes**,
 not a blanket ban on the string `main`.
 
 Retrieving availability: `GET /availability/{tenant}/availability/{productId}/{site}`
-(site as a **path** parameter). The older endpoints that took `site` as a
-**query** parameter are deprecated and will be removed **2026-09-01** — use the
-path-parameter form.
+(site as a **path** parameter). The older endpoints that take `site` as a
+**query** parameter are deprecated. Their removal was announced for
+**2026-09-01**, but they may still answer after that date, so a working call
+proves nothing. Always use the path-parameter form.
 
 ## Variants: dynamic vs template
 
@@ -167,18 +177,31 @@ Because writes for a product whose parent is not yet present skip the inline
 tree update, rebuild the trees **once, after the whole batch**:
 
 1. Import every product (root and all levels), any order:
-   `POST /product/{tenant}/products` or `/products/bulk`.
+   `POST /product/{tenant}/products` or `/products/bulk`. **Set each `id`
+   yourself** (e.g. `id` = your ERP SKU): a child's `parentVariantId` must name
+   its parent's id before the parent exists, which a server-generated id cannot
+   give you. Each entry in `ownVariantAttributes` is an object, not a bare
+   value:
+
+   ```json
+   "ownVariantAttributes": {
+     "size": {"name": {"en": "Size"},
+              "value": {"type": "STRING", "qualifier": "M", "name": {"en": "M"}}}
+   }
+   ```
 2. Trigger recalculation for the imported ids (≤1000 per call; any level — the
    system resolves each root and makes one job per unique root):
-   `POST /product/{tenant}/products/recalculate` → `202` with a `jobs` list.
+   `POST /product/{tenant}/products/recalculate` with body
+   `{"productIds": [...]}` → `202` with a `jobs` list.
 3. Poll each job to completion:
    `GET /product/{tenant}/products/recalculate/jobs/{jobId}` — statuses
    `PENDING → PROCESSING → FINISHED` (or `FAILED`, retried; `FAILED_PERMANENT`,
    needs manual investigation). Jobs are kept ~30 days after finishing.
 4. Fetch the root product; its `variants` map is now fully populated.
 
-Do **not** call recalculate after every single write — single writes update the
-tree synchronously and need no job. `metadata.dynamicVariantInfo` on a product
+Do **not** call recalculate after every single write — a write whose ancestors
+all exist updates the tree synchronously and needs no job. Only writes that
+arrive before an ancestor need the batch recalculation. `metadata.dynamicVariantInfo` on a product
 response flags broken chains (`missingAncestorId`) or cycles (`cycleDetected`).
 
 ## Mixins on products: key permanence
@@ -193,8 +216,9 @@ a product mixin key.
 
 ## Prices and price matching
 
-Prices are not stored net/gross — calculation happens at match time. Setup
-order: currency → price model (holds the tier definition) → read the tier id
+Whether a matched price is net or gross comes from `includesTax` — the
+site's setting if it has one, otherwise the price model's — so enter
+`priceValue`s on the basis the model declares. Setup order: currency → price model (holds the tier definition) → read the tier id
 from `tierDefinition.tiers.id` → create the price, passing that tier id as each
 `tierValues` entry's `id`:
 
@@ -210,8 +234,9 @@ curl -sS -X POST "https://api.emporix.io/price/{tenant}/prices" \
 
 When you name a non-default `priceModelId`, every `tierValues` entry must carry
 the `id` of the tier it prices (from the model's `tierDefinition.tiers[].id`);
-omitting it fails `400` "all the tier value ids must be specified". `tierValues`
-is positional — one entry per tier defined in the model.
+omitting it fails `400` "all the tier value ids must be specified". Give one
+entry per tier the model defines; the `id`, not the order, says which tier it
+prices.
 
 Resolve the sellable price with price matching:
 `POST /price/{tenant}/match-prices` with `targetCurrency`, `siteCode`,
@@ -242,18 +267,42 @@ Notes that bite:
 
 `POST /media/{tenant}/assets` with `media.asset_manage`. Two request shapes:
 `application/json` with a `url` creates a **LINK** (Emporix stores the
-reference); `multipart/form-data` creates a **BLOB** (uploaded binary, ≤10 MB).
+reference); `multipart/form-data` creates a **BLOB** (uploaded binary). The
+limit is **30 MiB (31,457,280 bytes) of total request body** — file plus the
+multipart overhead — so a file of exactly 30 MiB fails. Over the limit the API
+gateway answers `413 {"fault":{"faultstring":"Body buffer overflow",…}}`, not a
+Media-service `400`; keep files a few KB under 30 MiB.
 For storefront-visible product images use `access: PUBLIC` and
 `refIds: [{id: <productId>, type: PRODUCT}]`. The target product (or category)
 must exist first. A `PRIVATE` asset cannot be linked to a predefined type like
 `PRODUCT`/`CATEGORY` — that request is rejected `400`.
 
+The BLOB `body` part is a **plain-text** form field holding JSON — sending it
+as an `application/json`-typed part fails `400 "Cannot deserialize value of
+type java.lang.String"`:
+
+```bash
+curl -sS -X POST "https://api.emporix.io/media/{tenant}/assets" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F file=@image.png \
+  -F 'body={"type":"BLOB","access":"PUBLIC","refIds":[{"id":"<productId>","type":"PRODUCT"}]}'
+```
+
+To link an existing asset to another product,
+`PATCH /media/{tenant}/assets/{assetId}` with `Content-Type: application/json`
+(not `application/json-patch+json`, which fails `415`) and a JSON Patch array, e.g.
+`[{"op":"add","path":"/refIds/-","value":{"id":"<productId>","type":"PRODUCT"}}]`
+— it appends without re-uploading the file and returns `204` (empty body;
+`GET` the asset to confirm).
+
 ## Bulk limits
 
 Bulk/batch endpoints cap at **200 items** by default (Product, Price,
 Availability, Category assignment, Schema); Cart and Shipping cap at 50. A
-batch also cannot exceed **10 MB** body, 10 KB URL, or 60 KB headers.
-Over-size returns `400`. Split larger datasets across calls. Bulk responses are
+batch also cannot exceed **10 MB** body, 10 KB URL, or 60 KB headers. Too
+many items returns `400`; an oversized body can instead be rejected by the
+API gateway with `413` before the service sees it (as Media uploads do).
+Split larger datasets across calls. Bulk responses are
 **`207 Multi-Status`**: iterate the array and check each element's status by
 its request index — a `207` overall does not mean every item succeeded.
 
@@ -281,10 +330,10 @@ block in its OpenAPI spec — read it, never guess.
 | Imported stock/availability not visible; can't read it back per site | Availability written to `main` (the aggregator) | Rewrite to a real site code; if `main` is polluted, contact Emporix staff. Never POST availability to `main`. |
 | PIM variant sync needs parent-template edits before children load | Template variants used for a dynamic catalog | Model as `DYNAMIC_VARIANT`; import any order, then recalculate. |
 | Root `variants` map empty/partial after a bulk import | Recalculation not run (or not finished) | `POST .../products/recalculate`, poll jobs to `FINISHED`, then re-fetch the root. |
-| `404`/empty from a `GET .../availability/{productId}?site=...` you expected to work | Deprecated query-param endpoint (removal 2026-09-01) | Use the path-param form `.../availability/{productId}/{site}`. |
+| `404`/empty from a `GET .../availability/{productId}?site=...` you expected to work | Deprecated query-param endpoint (removal announced for 2026-09-01) | Use the path-param form `.../availability/{productId}/{site}`. |
 | Price match returns nothing | Site/currency/location don't match the price's restrictions, or a price list overrides | Check `restrictions.siteCodes`, currency, `targetLocation`; a matching price list wins over catalog prices. |
 | `400` "tax classes … do not exist" creating a product | `taxClasses` keyed on a non-country (e.g. `EN`) or a country with no tax config | Key on a configured country code (`DE`); `GET /tax/{tenant}/taxes` for valid class codes. |
-| `400` "localized values must be of String type …" | Localized-field create sent without a `Content-Language` header | Add `Content-Language: *` (or `en,de`) to the request. |
+| `400` "localized values must be of String type …" | Localized-field create sent without a `Content-Language` header | Add `Content-Language: *` to the request (maps need `*`; a single named language expects plain strings). |
 | `400` "all the tier value ids must be specified" creating a price | `tierValues` missing the tier `id` for a non-default `priceModelId` | Put each tier's `id` (`tierDefinition.tiers[].id`) on its `tierValues` entry. |
 | Adding a new product relation type is rejected | Relation types aren't a product-service resource | Write the type to the Configuration service (`configurations/relation_types`) first. |
 | `403` on any write | Key lacks that service's `_manage` scope | See `emporix-auth`; scopes are fixed at key creation — make a new key with the full set. |
@@ -295,8 +344,9 @@ Run against your tenant with a token carrying the pipeline scopes. Use
 test-obviously-named objects on a **real (non-`main`) site**, and clean up at
 the end. Report each check PASS / FAIL / BLOCKED with the raw response.
 
-Setup: ensure a non-`main` site exists (e.g. `pd-verify-site`); reuse the
-tenant's existing currency, tax class, and a price model.
+Setup: ensure two non-`main` sites exist (e.g. `pd-verify-site` and
+`pd-verify-site-2`; create them if needed and delete them in cleanup); reuse
+the tenant's existing currency, tax class, and a price model.
 
 1. **Product onboarded and readable.** `POST /product/{tenant}/products` with
    `code: PD-VERIFY-001`, `published: true`, a valid `taxClasses` → expect
@@ -312,8 +362,8 @@ tenant's existing currency, tax class, and a price model.
    `{"stockLevel":7,"available":true}` → `2xx`. `GET
    /availability/{tenant}/availability/{productId}/pd-verify-site` → `200`,
    `stockLevel == 7`.
-   **Negative:** `GET` the same product's availability on a second real site
-   you did *not* write to → `404`/empty. This site-scoping is exactly why
+   **Negative:** `GET` the same product's availability on
+   `pd-verify-site-2`, which you did *not* write to → `404`/empty. This site-scoping is exactly why
    availability written to `main` cannot be read back per site — if the
    un-written site returns `7`, availability is not site-scoped on this tenant,
    so stop and recheck the site setup rather than trusting the write.

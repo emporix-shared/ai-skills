@@ -13,7 +13,9 @@ metadata:
     - authentication/oauth-service/api-reference/api.yml
     - users-and-permissions/iam/api-reference/api.yml
     - companies-and-customers/approval-service/approval-api-reference/api.yml
-  drift-checked: doc-2026071011 changelog 2026-07-12
+    - companies-and-customers/customer-management/api-reference/api.yml
+    - checkout/cart/api-reference/api.yml
+  drift-checked: doc-2026102907 changelog 2026-10-29
 ---
 
 # Emporix authentication and authorization
@@ -182,15 +184,22 @@ Notes that bite in practice:
 ## MCP token (hosted Emporix MCP server)
 
 The MCP token is **not** an OAuth access token: it is the Base64 encoding of
-`clientId:secret` of a custom API key that carries the MCP scope plus the
-scopes of the tools you want exposed. It is embedded in the server URL:
+`clientId:secret` (`printf '%s' "$ID:$SECRET" | base64`, no trailing newline)
+of a custom API key that carries the MCP scope plus the scopes of the tools
+you want exposed. It is embedded in the server URL:
 
 ```
 https://api.emporix.io/mcp/{domain}/{tenant}/{mcp_token}/mcp
+https://api.emporix.io/mcp/dynamic/{tenant}/{mcp_server_id}/{mcp_token}/mcp   # a dynamic server you created in AI MCPs
 ```
 
-- Domains: `product`, `order`, `customer`, `extensibility`,
-  `frontend-facing`. Transport: streamable HTTP.
+- Domains: `product`, `order`, `customer`, `extensibility`, `frontend`,
+  `importtool`. Transport: streamable HTTP. An unknown domain — including the
+  old name `frontend-facing` — answers `404`.
+- `401 {"error":"unauthorized","message":"Provided tenant/credentails are
+  invalid or mcp scope is missing."}` means the token decodes to a key without
+  the MCP scope (or the wrong tenant). The out-of-the-box Emporix API key may
+  not carry it — create a custom key with the MCP scope.
 - The server only lists tools whose required scopes the token carries (e.g.
   `get-product` needs `product.product_read_unpublished`, `upsert-price`
   needs `price.price_manage`). A connected server with missing tools means
