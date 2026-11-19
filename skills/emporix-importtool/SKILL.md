@@ -16,6 +16,7 @@ description: >-
   problems in general (emporix-auth).
 license: CC-BY-4.0
 metadata:
+  validated: 2026-11-19 claude-code clean-context run on tenant rcottondev (develop), Verify 8/8 (Opus + Haiku), evals 4/4 with skill, author-stamped, PR #30
   sources:
     - utilities/import-service/api-reference/api.yml
 ---
