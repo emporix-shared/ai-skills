@@ -12,7 +12,7 @@ Agentic **skills** for building on the [Emporix](https://emporix.com) commerce p
 | [emporix-auth](skills/emporix-auth/SKILL.md) | Authenticate against the Emporix Commerce Engine API. | ✅ `2026-07-11` |
 | [emporix-docs-navigation](skills/emporix-docs-navigation/SKILL.md) | Find, read, and verify answers in the Emporix documentation from primary sources. | ✅ `2026-07-10` |
 | [emporix-extensibility](skills/emporix-extensibility/SKILL.md) | Extend the Emporix data model with the Schema Service — add custom fields (mixins) to core entities like Product, Order, Customer, or Cart … | ✅ `2026-10-29` |
-| [emporix-importtool](skills/emporix-importtool/SKILL.md) | Operate data imports with the Emporix Import Service (the Import Tool) over its API — feed CSV files to a file-based stream, trigger FULL … | ✅ `2026-11-19` |
+| [emporix-importtool](skills/emporix-importtool/SKILL.md) | Operate data imports with the Emporix Import Service (the Import Tool) over its API — feed CSV or XML files to a file-based stream, trigger … | ✅ `2026-11-19` |
 | [emporix-product-data](skills/emporix-product-data/SKILL.md) | Onboard and sync product data into Emporix across the Product, Category, Catalog, Availability, Price, and Media services. | ✅ `2026-10-06` |
 | [emporix-sequential-id](skills/community/emporix-sequential-id/SKILL.md) | Manage sequence schemas in the Emporix Sequential ID Service and generate sequential document numbers. | ✅ `2026-07-11` |
 | [emporix-storefront](skills/emporix-storefront/SKILL.md) | Develop, run, and deploy the Emporix Journey Aware Storefront (the productized B2B Commerce Frontend / emporix-showcase) — a Next.js 16 + … | ✅ `2026-10-29` |

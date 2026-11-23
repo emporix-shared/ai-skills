@@ -2,11 +2,11 @@
 name: emporix-importtool
 description: >-
   Operate data imports with the Emporix Import Service (the Import Tool) over
-  its API — feed CSV files to a file-based stream, trigger FULL, DELTA, or dry
+  its API — feed CSV or XML files to a file-based stream, trigger FULL, DELTA, or dry
   runs, follow a run through the shared queue, reconcile its counters, read
   run errors and diagnostics, retry failed records, schedule recurring runs,
-  and search what was imported. Use when loading an ERP, PIM, Celonis, or CSV
-  export into Emporix through an existing import job, automating an import
+  and search what was imported. Use when loading an ERP, PIM, Celonis, CSV, or
+  XML export into Emporix through an existing import job, automating an import
   from a pipeline or Celonis Action Flow, or diagnosing an import that ended
   PARTIAL, FAILED, or ABORTED, a run stuck in QUEUED, a 409 on trigger or
   upload, counters that do not add up, NO_KEY or REJECTED_BY_SOURCE errors,
@@ -26,7 +26,7 @@ metadata:
 The Import Service moves external master data into Emporix. An **import job**
 (the API calls it a *configuration*, `configId`) groups **streams**; each
 stream reads one source dataset — a Celonis record, an HTTP endpoint, or a
-delimited file — maps it onto one Emporix target type and upserts it
+file (CSV or XML) — maps it onto one Emporix target type and upserts it
 idempotently. You *configure* jobs, connections, streams, and mappings in the
 Management Dashboard's Import Tool (scope `importtool.import_manage`); you
 *operate* them over the API with `importtool.import_trigger`: give a file
@@ -61,8 +61,8 @@ not the order a run executes them in — dependencies decide that; read it from
   published is not run (that stream's row is `ABORTED`, the run `PARTIAL`);
   the whole run is `ABORTED` only when every enabled stream, or a stream named
   in `streamIds`, is in that state.
-- For the file workflow: a **file-based stream** (`fileMode` set,
-  delimited/CSV connection). For Verify, that stream must be `SNAPSHOT` and
+- For the file workflow: a **file-based stream** (`fileMode` set, on a File
+  connection whose format is CSV or XML). For Verify, that stream must be `SNAPSHOT` and
   write to a **test custom entity type** you are
   free to fill and empty, with `schema.custominstance_manage` to delete its
   instances afterwards and `schema.custominstance_read` to confirm they are
@@ -185,6 +185,16 @@ curl -s -X POST "https://api.emporix.io/importtool/$TENANT/streams/$STREAM_ID/fi
   not splitting the file.
 - `uploadSupported: false` (or `503` on upload) means file storage is not
   configured in that environment; uploading cannot work there.
+- **XML files go through the same queue.** The File connection's format
+  decides how a file is read; the upload, queue, ledger, and run are the same
+  as for CSV, and gzip and zip work for both. An XML stream reads one record
+  per element at its `recordsPath` (set in the Management Dashboard; the stream
+  editor offers the elements found in the file), so a file whose records sit
+  under a different element reads **zero records** — or, where another element
+  repeats, fails with a `CONFIGURATION` message naming the path that would
+  match. A file that is not well-formed XML ends `FAILED` with a message
+  naming the file, line, and column; correct the file and upload it (new
+  bytes), rather than requeueing the same bytes.
 - `history` holds `PROCESSED`, `FAILED`, and `IN_PROGRESS` files, newest first
   (`historyLimit` sizes it; `pending` is always returned whole). Record-level
   failures do not mark a file `FAILED`; a `FAILED` file means the file itself
@@ -225,7 +235,7 @@ whole list. Act on `errorCode`:
 |---|---|---|
 | `VALIDATION` | Mapped record failed validation before any write | Fix source data or the mapping |
 | `NO_KEY` | Key column empty | Fix the source rows, then load them as new input — not a retry |
-| `REJECTED_BY_SOURCE` | The source refused this one row (e.g. a CSV list longer than the stream allows); the rest imported | Fix that row (`message` names column, count, and limit), then load it as new input — not a retry |
+| `REJECTED_BY_SOURCE` | The source refused this one row (e.g. a CSV list longer than the stream allows, or an XML record with more elements and attributes than its `maxColumns`); the rest imported | Fix that row (`message` names column, count, and limit), then load it as new input — not a retry |
 | `UPSERT` | The Emporix target rejected the write | Read `message` (often a schema type mismatch) |
 | `CONFIGURATION` | Something to change in the job itself | `message` says what; fix in the Management Dashboard |
 | `EXTERNAL_SYSTEM` | The source system answered with an error (e.g. 5xx) | Retry later; not an import bug |
