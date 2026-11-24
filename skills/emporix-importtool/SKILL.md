@@ -62,8 +62,9 @@ not the order a run executes them in — dependencies decide that; read it from
   the whole run is `ABORTED` only when every enabled stream, or a stream named
   in `streamIds`, is in that state.
 - For the file workflow: a **file-based stream** (`fileMode` set, on a File
-  connection whose format is CSV or XML). For Verify, that stream must be `SNAPSHOT` and
-  write to a **test custom entity type** you are
+  connection whose format is CSV or XML). For Verify, that stream must be `SNAPSHOT`,
+  on a **CSV** File connection (Verify uploads a CSV; an XML connection would
+  parse it as XML and fail), and write to a **test custom entity type** you are
   free to fill and empty, with `schema.custominstance_manage` to delete its
   instances afterwards and `schema.custominstance_read` to confirm they are
   gone — manage does not include read: a manage-only token gets `403` on the
