@@ -1,6 +1,6 @@
 # Emporix AI Skills
 
-Agentic **skills** for building on the [Emporix](https://emporix.com) commerce platform. Each skill is a single `SKILL.md` file that gives an AI coding agent working knowledge of one Emporix domain — how authentication, product data, extensibility, the storefront, and tenant configuration actually work. Every skill is grounded in the Emporix documentation and ends with executable API checks that prove it worked.
+Agentic **skills** for building on the [Emporix](https://emporix.com) commerce platform. Each skill is a `SKILL.md` file, sometimes with `references/` and bundled `scripts/`, that gives an AI coding agent working knowledge of one Emporix domain — how authentication, product data, extensibility, the storefront, and tenant configuration actually work. Every skill is grounded in the Emporix documentation and ends with executable API checks that prove it worked.
 
 `skills/*/SKILL.md` is the only authored source of truth. The bundled scripts generate per-tool adapters from it and can wire up the Emporix MCP servers for live documentation and runtime grounding.
 
@@ -13,6 +13,7 @@ Agentic **skills** for building on the [Emporix](https://emporix.com) commerce p
 | [emporix-docs-navigation](skills/emporix-docs-navigation/SKILL.md) | Find, read, and verify answers in the Emporix documentation from primary sources. | ✅ `2026-07-10` |
 | [emporix-extensibility](skills/emporix-extensibility/SKILL.md) | Extend the Emporix data model with the Schema Service — add custom fields (mixins) to core entities like Product, Order, Customer, or Cart … | ✅ `2026-10-29` |
 | [emporix-importtool](skills/emporix-importtool/SKILL.md) | Operate data imports with the Emporix Import Tool through its MCP server — queue CSV or XML files on a file-based stream, trigger FULL … | ✅ `2026-11-24` |
+| [emporix-md-extension](skills/emporix-md-extension/SKILL.md) | Build, run locally, iterate on, and deploy Emporix Management Dashboard (MD) extensions — React/Vite module-federation remotes scaffolded … | ⚠️ unvalidated |
 | [emporix-product-data](skills/emporix-product-data/SKILL.md) | Onboard and sync product data into Emporix across the Product, Category, Catalog, Availability, Price, and Media services. | ✅ `2026-10-06` |
 | [emporix-sequential-id](skills/community/emporix-sequential-id/SKILL.md) | Manage sequence schemas in the Emporix Sequential ID Service and generate sequential document numbers. | ✅ `2026-07-11` |
 | [emporix-storefront](skills/emporix-storefront/SKILL.md) | Develop, run, and deploy the Emporix Journey Aware Storefront (the productized B2B Commerce Frontend / emporix-showcase) — a Next.js 16 + … | ✅ `2026-10-29` |
@@ -55,4 +56,4 @@ For questions, requests, and to share skills of your own, join the [Emporix AI c
 
 ## License
 
-Skill content (the prose of `skills/**/SKILL.md` and the adapters generated from it) is licensed under [CC-BY-4.0](LICENSE-CONTENT). Code (the scripts and config files) is licensed under [MIT](LICENSE).
+Skill content (the prose of `skills/**/SKILL.md`, `skills/**/references/`, and the adapters generated from it) is licensed under [CC-BY-4.0](LICENSE-CONTENT). Code (the scripts, including scripts bundled in `skills/**/scripts/`, and config files) is licensed under [MIT](LICENSE).
